@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>¿Quién quiere ser millonario? - IBCC</title>
+    <style>
+      :root {
+        --bg: #060b1f;
+        --panel: rgba(9, 18, 52, 0.9);
+        --gold: #f0c14b;
+        --gold-2: #ffd978;
+        --text: #f7fbff;
+        --muted: #b5c3ff;
+        --ok: #32d17c;
+        --bad: #ff5f57;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 20%, #1d2f7a 0%, transparent 35%),
+          radial-gradient(circle at 80% 12%, #6140a0 0%, transparent 30%),
+          radial-gradient(circle at 50% 80%, #102149 0%, transparent 40%),
+          var(--bg);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .game {
+        width: min(1500px, 95vw);
+        min-height: min(92vh, 930px);
+        border: 2px solid rgba(255, 217, 120, 0.5);
+        border-radius: 28px;
+        background: linear-gradient(160deg, rgba(15, 27, 72, 0.95), rgba(5, 10, 30, 0.95));
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+        padding: 30px 42px;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.6rem, 3.2vw, 3rem);
+        letter-spacing: 0.02em;
+      }
+      .subtitle { color: var(--muted); font-size: clamp(1rem, 1.7vw, 1.45rem); }
+      .badge {
+        border: 1px solid rgba(255, 217, 120, 0.55);
+        background: rgba(0, 0, 0, 0.23);
+        color: var(--gold-2);
+        padding: 9px 16px;
+        border-radius: 999px;
+        font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+        font-weight: 700;
+      }
+      .question-box {
+        background: var(--panel);
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        border-radius: 20px;
+        padding: 26px;
+      }
+      .question {
+        margin: 0;
+        font-size: clamp(1.5rem, 3vw, 2.5rem);
+        line-height: 1.25;
+        text-wrap: balance;
+      }
+      .answers { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .answer {
+        background: rgba(255, 255, 255, 0.07);
+        border: 2px solid rgba(255,255,255,0.18);
+        color: var(--text);
+        text-align: left;
+        border-radius: 16px;
+        padding: 16px 18px;
+        font-size: clamp(1.1rem, 2vw, 1.7rem);
+        cursor: pointer;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      }
+      .answer:hover { transform: translateY(-2px); border-color: var(--gold); }
+      .answer.correct { background: rgba(50, 209, 124, 0.25); border-color: var(--ok); }
+      .answer.wrong { background: rgba(255, 95, 87, 0.2); border-color: var(--bad); }
+      .controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+      .btn {
+        border: 2px solid rgba(255,255,255,0.24);
+        background: rgba(255,255,255,0.08);
+        color: white;
+        padding: 12px 18px;
+        border-radius: 12px;
+        font-size: clamp(1rem, 1.35vw, 1.22rem);
+        cursor: pointer;
+      }
+      .btn.primary { background: linear-gradient(160deg, #ffd46f, #f0b22f); color: #262009; font-weight: 700; border-color: #ffd978; }
+      .feedback { min-height: 2.2em; font-size: clamp(1rem, 1.6vw, 1.35rem); color: var(--gold-2); font-weight: 600; }
+      .progress { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; }
+      .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, #4cd785, #ffd978); transition: width 250ms ease; }
+      @media (max-width: 980px) { .answers { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main class="game">
+      <section class="header">
+        <div>
+          <h1>¿Quién quiere ser millonario? · IBCC</h1>
+          <div class="subtitle">Actividad aniversario · 15 preguntas</div>
+        </div>
+        <div class="badge" id="counter">Pregunta 1 / 15</div>
+      </section>
+
+      <section class="question-box">
+        <p id="question" class="question"></p>
+      </section>
+
+      <section id="answers" class="answers"></section>
+      <div id="feedback" class="feedback"></div>
+      <div class="progress"><div id="bar"></div></div>
+
+      <section class="controls">
+        <button id="prevBtn" class="btn">⟵ Anterior</button>
+        <button id="showBtn" class="btn">Mostrar correcta</button>
+        <button id="nextBtn" class="btn primary">Siguiente ⟶</button>
+      </section>
+    </main>
+
+    <script>
+      const questions = [
+        { q: "¿Cómo se llama el himno de las ofrendas?", options: ["Te damos gracias Padre", "Cuán grande es Él", "Dios te bendiga", "Aramos nuestros campos"], correct: 3 },
+        { q: "¿Quién es el miembro más antiguo?", options: ["Cesar Rodriguez", "Maryorie González", "Ybelis Guedez", "Jonathan Dámaso"], correct: 0 },
+        { q: "¿En qué año se fundó la IBCC?", options: ["2026", "1834", "1335", "1946"], correct: 3 },
+        { q: "¿En qué lugar se encuentra ubicada la IBCC?", options: ["La Casona", "La California", "La Candelaria", "La Carlota"], correct: 2 },
+        { q: "¿Quién es la maestra de EBD de Jóvenes B1 actualmente?", options: ["Isaac Delgado", "Carmen Moreno", "Carolina de Delgado", "Dhaniel Mata"], correct: 2 },
+        { q: "¿Quién es el maestro de EBD de Adultos B3?", options: ["César Domador", "Joaquin Escalante", "Zulay Ruiz", "Maria de Guerrero"], correct: 1 },
+        { q: "¿Cómo se llamó el 2do pastor de la IBCC?", options: ["Cesar Domador", "Julio Moros", "Enrique Dámaso", "José Juan Corti"], correct: 3 },
+        { q: "¿Cómo se llamaba la esquina donde estuvo el primer local de la IBCC?", options: ["Monagas", "Maturín", "Barquisimeto", "Miranda"], correct: 1 },
+        { q: "¿Quién tiene el récord de ser el diácono nombrado a más corta edad y cuántos años tenía?", options: ["Jonathán Dámaso con 20 años", "César Rodríguez con 20 años", "Jonathán Dámaso con 23 años", "César Rodríguez con 22 años"], correct: 1 },
+        { q: "¿Cuántas iglesias ha fundado la IBCC?", options: ["16", "10", "11", "14"], correct: 3 },
+        { q: "¿Cuál fue la iglesia madre que fundó la IBCC?", options: ["Primera Iglesia Bautista de Bogotá", "Emanuel Baptist Church de Texas", "Primera Iglesia Bautista de Barranquilla", "Primera Iglesia Bautista de Quito"], correct: 2 },
+        { q: "¿Quién es el miembro más longevo/mayor?", options: ["Rosa Guedez", "Agustina de Trias", "Cesar Rodriguez", "Elba Chirinos"], correct: 1 },
+        { q: "¿Quién fue el arquitecto que diseñó la planta educacional de la IBCC?", options: ["Joel Blanco", "Samuel Prato", "Neptalí Prato", "Miguel Hernández"], correct: 1 },
+        { q: "¿Quién donó el templo de la IBCC?", options: ["Maxey Jarman", "Cesar Rodriguez", "José Juan Corti", "Samuel Prato"], correct: 0 },
+        { q: "Pregunta final sorpresa: ¿En qué sector está ubicada la IBCC?", options: ["La Candelaria", "La Carlota", "La California", "La Casona"], correct: 0 }
+      ];
+
+      let index = 0;
+      let locked = false;
+
+      const qEl = document.getElementById("question");
+      const aEl = document.getElementById("answers");
+      const fEl = document.getElementById("feedback");
+      const cEl = document.getElementById("counter");
+      const bar = document.getElementById("bar");
+
+      function render() {
+        locked = false;
+        const current = questions[index];
+        qEl.textContent = current.q;
+        cEl.textContent = `Pregunta ${index + 1} / ${questions.length}`;
+        bar.style.width = `${((index + 1) / questions.length) * 100}%`;
+        fEl.textContent = "";
+        aEl.innerHTML = "";
+        const letters = ["A", "B", "C", "D"];
+        current.options.forEach((opt, i) => {
+          const btn = document.createElement("button");
+          btn.className = "answer";
+          btn.innerHTML = `<strong>${letters[i]}.</strong> ${opt}`;
+          btn.onclick = () => choose(i, btn);
+          aEl.appendChild(btn);
+        });
+      }
+
+      function choose(selected, button) {
+        if (locked) return;
+        locked = true;
+        const current = questions[index];
+        const nodes = [...document.querySelectorAll(".answer")];
+        nodes[current.correct].classList.add("correct");
+        if (selected === current.correct) {
+          fEl.textContent = "✅ ¡Correcto!";
+        } else {
+          button.classList.add("wrong");
+          fEl.textContent = "❌ Esa no era. Se muestra la correcta.";
+        }
+      }
+
+      document.getElementById("showBtn").onclick = () => {
+        const current = questions[index];
+        [...document.querySelectorAll(".answer")][current.correct].classList.add("correct");
+        fEl.textContent = "💡 Respuesta correcta resaltada.";
+        locked = true;
+      };
+
+      document.getElementById("nextBtn").onclick = () => {
+        if (index < questions.length - 1) {
+          index += 1;
+          render();
+        }
+      };
+      document.getElementById("prevBtn").onclick = () => {
+        if (index > 0) {
+          index -= 1;
+          render();
+        }
+      };
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") document.getElementById("nextBtn").click();
+        if (e.key === "ArrowLeft") document.getElementById("prevBtn").click();
+        if (e.key.toLowerCase() === "r") document.getElementById("showBtn").click();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
