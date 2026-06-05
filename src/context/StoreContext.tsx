@@ -15,7 +15,7 @@ interface StoreContextType {
         paymentMethod: string,
         paymentProof: File
     ) => Promise<void>;
-    updateOrderStatus: (orderId: string, status: "Pending" | "Verified") => Promise<void>;
+    updateOrderStatus: (orderId: string, status: "Pending" | "Verified", pdfFile?: File) => Promise<void>;
     currentUserEmail: string;
 }
 
@@ -134,16 +134,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const updateOrderStatus = async (orderId: string, status: "Pending" | "Verified") => {
-        const { error } = await supabase
-            .from('orders')
-            .update({ payment_status: status })
-            .eq('id', orderId);
+    const updateOrderStatus = async (orderId: string, status: "Pending" | "Verified", pdfFile?: File) => {
+        try {
+            let downloadUrl = undefined;
 
-        if (error) {
-            console.error('Error updating order:', error);
-        } else {
-            fetchOrders();
+            if (pdfFile && status === "Verified") {
+                // 1. Upload story PDF to 'stories' bucket
+                const fileName = `story-${orderId}-${Date.now()}.pdf`;
+                const { error: uploadError } = await supabase.storage
+                    .from('stories')
+                    .upload(fileName, pdfFile, {
+                        cacheControl: '3600',
+                        upsert: true,
+                        contentType: 'application/pdf'
+                    });
+
+                if (uploadError) {
+                    console.error('Error uploading story PDF:', uploadError);
+                    alert("Error al subir el archivo PDF. Asegúrate de tener creado el bucket 'stories' en Supabase.");
+                    return;
+                }
+
+                // 2. Get Public URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('stories')
+                    .getPublicUrl(fileName);
+                downloadUrl = publicUrl;
+            }
+
+            // 3. Update database record
+            const updates: any = { payment_status: status };
+            if (downloadUrl) {
+                updates.download_url = downloadUrl;
+            }
+
+            const { error } = await supabase
+                .from('orders')
+                .update(updates)
+                .eq('id', orderId);
+
+            if (error) {
+                console.error('Error updating order:', error);
+            } else {
+                fetchOrders();
+            }
+        } catch (error: any) {
+            console.error('Unexpected error updating status:', error);
+            alert(`Error: ${error.message || "Ocurrió un error inesperado"}`);
         }
     };
 

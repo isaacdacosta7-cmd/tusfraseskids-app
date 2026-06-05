@@ -99,13 +99,21 @@ export default function AdminPage() {
                                                         Revertir
                                                     </button>
                                                 ) : (
-                                                    <button
-                                                        onClick={() => updateOrderStatus(order.id, "Verified")}
-                                                        className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-lg shadow-slate-900/20 hover:bg-black transition-all flex items-center gap-2"
-                                                    >
+                                                    <label className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-lg shadow-slate-900/20 hover:bg-black transition-all flex items-center gap-2 cursor-pointer w-fit">
                                                         <CheckCircle size={14} />
-                                                        Aprobar Pago
-                                                    </button>
+                                                        Aprobar y Subir PDF
+                                                        <input
+                                                            type="file"
+                                                            accept=".pdf"
+                                                            className="hidden"
+                                                            onChange={(e) => {
+                                                                const file = e.target.files?.[0];
+                                                                if (file) {
+                                                                    updateOrderStatus(order.id, "Verified", file);
+                                                                }
+                                                            }}
+                                                        />
+                                                    </label>
                                                 )}
                                             </td>
                                         </tr>
