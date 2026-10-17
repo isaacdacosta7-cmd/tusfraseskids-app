@@ -6,7 +6,7 @@ function fixture(){
  const codeHash=crypto.createHmac('sha256',secret).update('purchase:'+validCode).digest('hex');
  const storage={BlobPreconditionFailedError,get:async k=>{const value=records.get(k);return value?{statusCode:200,stream:new Response(value.body).body,blob:{etag:value.etag}}:null},put:async(k,body,o)=>{const value=records.get(k);if(value&&(!o.allowOverwrite||value.etag!==o.ifMatch))throw new BlobPreconditionFailedError();records.set(k,{body,etag:String(++version)})}};
  const mockedFs={...fs,readFileSync:(p,encoding)=>String(p).endsWith('access-codes.json')?JSON.stringify({codes:[{hash:codeHash,active:true}]}):fs.readFileSync(p,encoding)};
- const sandbox={require:n=>n==='@vercel/blob'?storage:n==='node:fs'?mockedFs:require(n),process:{env:{TFI_ACCESS_SECRET:secret},cwd:()=>root},module:{exports:{}},Buffer,Response,URL,console:{error:()=>{}}};
+ const sandbox={require:n=>n==='@vercel/blob'?storage:n==='node:fs'?mockedFs:require(n),__dirname:path.join(root,'api'),process:{env:{TFI_ACCESS_SECRET:secret},cwd:()=>root},module:{exports:{}},Buffer,Response,URL,console:{error:()=>{}}};
  vm.runInNewContext(fs.readFileSync(path.join(root,'api/portal.js'),'utf8'),sandbox);
  async function request({action='',asset='',code=validCode,cookie='',method='POST',origin='https://test.local',marker='purchase-code'}={}){
   const headers={host:'test.local',origin,'x-tfi-request':marker,cookie};const req={url:'/api/portal',query:{action,asset},headers,method,body:{code},socket:{remoteAddress:'127.0.0.1'}};

@@ -3,7 +3,7 @@ const crypto=require('node:crypto');
 const fs=require('node:fs');
 const path=require('node:path');
 const {get,put,BlobPreconditionFailedError}=require('@vercel/blob');
-const root=path.join(process.cwd(),'private');
+const root=path.resolve(__dirname,'..','private');
 const catalog=JSON.parse(fs.readFileSync(path.join(root,'access-codes.json'),'utf8'));
 const allowed=new Set(catalog.codes.filter(c=>c.active).map(c=>c.hash));
 const SESSION_SECONDS=90*24*60*60;
