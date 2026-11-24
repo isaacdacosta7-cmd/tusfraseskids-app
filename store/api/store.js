@@ -164,6 +164,60 @@ module.exports=async(req,res)=>{
   const saved=await db.query("UPDATE store_orders SET payment_proof_path=$3,payment_proof_mime=$4 WHERE id=$1 AND access_token_hash=$2 AND status='pending'",[id,hash(access),path,mime]);
   return saved.rowCount?send(res,{ok:true,proof_uploaded:true}):fail(res,'El pedido ya está procesado.',409);
  }
+ if(req.method==='POST'&&a==='customer-login'){
+  const email=String(b.email||'').trim().toLowerCase(),pass=String(b.password||'');
+  if(!validEmail(email)||pass.length<1||pass.length>128)return fail(res,'Correo o contraseña incorrectos.',401);
+  if(!await consumeAuthAttempt(req))return fail(res,'Demasiados intentos. Prueba nuevamente más tarde.',429);
+  const user=(await db.query('SELECT id,email,password_salt,password_hash FROM store_customers WHERE email=$1',[email])).rows[0];
+  if(!user||!await verifyPassword(pass,user))return fail(res,'Correo o contraseña incorrectos.',401);
+  setBuyerSession(res,user.id,email);
+  return send(res,{ok:true});
+ }
+ if(req.method==='POST'&&a==='customer-logout'){
+  res.setHeader('Set-Cookie',BUYER_COOKIE+'=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax');
+  return send(res,{ok:true});
+ }
+ if(req.method==='GET'&&a==='customer-me'){
+  const session=buyerSession(req);
+  if(!session)return fail(res,'Inicia sesión para consultar tus compras.',401);
+  const user=(await db.query('SELECT id,email,name,whatsapp FROM store_customers WHERE id=$1 AND email=$2',[session.id,session.email])).rows[0];
+  return user?send(res,{customer:user}):fail(res,'Cuenta no disponible.',401);
+ }
+ if(req.method==='GET'&&a==='customer-orders'){
+  const session=buyerSession(req);
+  if(!session)return fail(res,'Inicia sesión para consultar tus compras.',401);
+  const rows=(await db.query("SELECT o.id,o.created_at,o.status,o.total_cents,o.payment_method,o.payment_reference,(o.payment_proof_path IS NOT NULL) AS proof_uploaded,coalesce((SELECT json_agg(json_build_object('title',p.title,'slug',p.slug)) FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=o.id),'[]'::json) AS items FROM store_orders o WHERE o.customer_id=$1 ORDER BY o.created_at DESC LIMIT 100",[session.id])).rows;
+  return send(res,{orders:rows});
+ }
+ if(req.method==='POST'&&a==='customer-claim'){
+  const email=String(b.email||'').trim().toLowerCase(),whatsapp=cleanPhone(b.whatsapp),reference=String(b.reference||'').trim(),pass=String(b.password||''),name=String(b.name||'').trim().slice(0,100);
+  if(!validEmail(email)||whatsapp.length<10||whatsapp.length>15||reference.length<3||reference.length>100||!validPass(pass)||name.length<3)return fail(res,'Completa los datos de tu compra y una contraseña de al menos 10 caracteres.');
+  if(!await consumeAuthAttempt(req))return fail(res,'Demasiados intentos. Prueba nuevamente más tarde.',429);
+  const matching=(await db.query("SELECT id FROM store_orders WHERE lower(customer_email)=$1 AND regexp_replace(customer_whatsapp,'[^0-9]','','g')=$2 AND payment_reference=$3 AND customer_id IS NULL LIMIT 1",[email,whatsapp,reference])).rows[0];
+  if(!matching)return fail(res,'No encontramos una compra anterior con esos datos. Comprueba la referencia del pago.',404);
+  const salt=randomBytes(20).toString('hex'),hashed=await passwordDigest(pass,salt),id=randomUUID();
+  const c=await db.connect();
+  try{
+   await c.query('BEGIN');
+   const insert=await c.query('INSERT INTO store_customers(id,email,name,whatsapp,password_salt,password_hash) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(email) DO NOTHING RETURNING id',[id,email,name,whatsapp,salt,hashed]);
+   if(!insert.rows.length){await c.query('ROLLBACK');return fail(res,'Este correo ya tiene cuenta. Inicia sesión y vincula tu compra anterior.',409);}
+   const update=await c.query("UPDATE store_orders SET customer_id=$1 WHERE customer_id IS NULL AND lower(customer_email)=$2 AND regexp_replace(customer_whatsapp,'[^0-9]','','g')=$3",[id,email,whatsapp]);
+   if(!update.rowCount){await c.query('ROLLBACK');return fail(res,'Compra anterior no encontrada.',404);}
+   await c.query('COMMIT');
+  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+  setBuyerSession(res,id,email);
+  return send(res,{ok:true},201);
+ }
+ if(req.method==='POST'&&a==='customer-link'){
+  const session=buyerSession(req),phone=cleanPhone(b.whatsapp),ref=String(b.reference||'').trim();
+  if(!session)return fail(res,'Primero inicia sesión.',401);
+  if(phone.length<10||phone.length>15||ref.length<3||ref.length>100)return fail(res,'Introduce WhatsApp y referencia del pago anterior.');
+  if(!await consumeAuthAttempt(req))return fail(res,'Demasiados intentos. Prueba nuevamente más tarde.',429);
+  const proof=(await db.query("SELECT 1 FROM store_orders WHERE customer_id IS NULL AND lower(customer_email)=$1 AND regexp_replace(customer_whatsapp,'[^0-9]','','g')=$2 AND payment_reference=$3 LIMIT 1",[session.email,phone,ref])).rows[0];
+  if(!proof)return fail(res,'Revisa los datos de tu compra anterior.',404);
+  const update=await db.query("UPDATE store_orders SET customer_id=$1 WHERE customer_id IS NULL AND lower(customer_email)=$2 AND regexp_replace(customer_whatsapp,'[^0-9]','','g')=$3",[session.id,session.email,phone]);
+  return send(res,{linked:update.rowCount});
+ }
  if(req.method==='GET'&&a==='order'){
   const id=u.searchParams.get('id'),access=u.searchParams.get('access');
   if(!uuid(id)||!access||access.length!==64)return fail(res,'Enlace inválido.');
