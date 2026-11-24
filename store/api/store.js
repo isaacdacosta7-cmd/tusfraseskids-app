@@ -319,8 +319,8 @@ module.exports=async(req,res)=>{
   if(a==='revoke'){
    const id=String(b.id||'');
    if(!uuid(id)||b.confirm!==true)return fail(res,'Confirma el pedido que deseas revocar.');
-   const changed=await db.query("UPDATE store_orders SET status='rejected',reviewed_at=now(),revoked_at=now() WHERE id=$1 AND status='approved' RETURNING id",[id]);
-   return changed.rowCount?send(res,{ok:true,status:'rejected'}):fail(res,'Este pedido ya fue procesado o revocado.',409);
+   const changed=await db.query("UPDATE store_orders SET status='pending',reviewed_at=NULL,revoked_at=now() WHERE id=$1 AND status='approved' RETURNING id",[id]);
+   return changed.rowCount?send(res,{ok:true,status:'pending'}):fail(res,'Este pedido ya fue procesado o revocado.',409);
   }
   if(a==='payment-settings'){
    const x={};for(const k of ['pago_movil','transferencia','internacional','whatsapp'])x[k]=String(b[k]||'').trim().slice(0,600);
