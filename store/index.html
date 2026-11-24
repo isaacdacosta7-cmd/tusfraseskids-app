@@ -183,11 +183,28 @@ async function statusPage(){
  const u=new URL(location.href),id=u.searchParams.get('id')||'',access=u.searchParams.get('access')||'';
  app.className='';
  app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><h2>📦 Estado de tu compra</h2><div class="loading">Consultando pedido…</div></div></main>');
- try{const d=await get('order',{id,access});const status=d.order.status;
- let statusText=status==='approved'?'✅ Pago verificado. ¡Tus cuentos están listos!':status==='rejected'?'⚠️ El comprobante requiere revisión. Contacta a la tienda.':'⏳ Pago pendiente de verificación.';
- const rows=d.items.map(x=>'<div class="order-book"><strong>'+esc(x.title)+'</strong>'+(status==='approved'?'<a class="btn primary sm" href="'+API+'?action=download&id='+encodeURIComponent(id)+'&access='+encodeURIComponent(access)+'&slug='+encodeURIComponent(x.slug)+'">⬇ Descargar PDF</a>':'<span class="stat">PDF al aprobar</span>')+'</div>').join('');
- app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><span class="kicker">Tus Frases Inspiradoras Store</span><h2>📦 Tu pedido</h2><div class="notice '+(status==='approved'?'success':'')+'">'+statusText+'</div><p class="muted">Referencia de pedido: <strong>'+esc(id)+'</strong></p>'+rows+'<p class="muted" style="font-size:12px">Guarda tu enlace privado: podrás acceder a tus cuentos y a los juegos después de aprobarse tu pago.</p>'+(status==='approved'?'<div class="notice success" style="margin:18px 0"><strong>🎮 ¡Tu regalo digital está listo!</strong><p>Entra a tu plataforma exclusiva de aventuras bíblicas. Tus juegos se desbloquean al abrir el acceso.</p><a class="btn primary wide" href="'+API+'?action=games&id='+encodeURIComponent(id)+'&access='+encodeURIComponent(access)+'">🎮 Abrir mis juegos bíblicos →</a></div>':'')+(status==='pending'?'<button class="btn ghost" onclick="location.reload()">🔄 Actualizar estado</button>':'')+' <a class="btn outline" href="/">Volver al catálogo</a></div></main>');
- }catch(e){app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><h2>Enlace inválido</h2><p class="muted">'+esc(e.message)+'</p><a href="/" class="btn primary">Ver cuentos</a></div></main>');}
+ try{
+  const d=await get('order',{id,access}),status=d.order.status,hasProof=Boolean(d.order.proof_uploaded);
+  const statusText=status==='approved'?'✅ Pago verificado. ¡Tus cuentos están listos!':status==='rejected'?'⚠️ El comprobante requiere revisión. Contacta a la tienda.':hasProof?'📸 Tu comprobante fue recibido. Estamos verificando el pago.':'📸 Pedido registrado. Adjunta tu captura para verificar el pago.';
+  const rows=d.items.map(x=>'<div class="order-book"><strong>'+esc(x.title)+'</strong>'+(status==='approved'?'<a class="btn primary sm" href="'+API+'?action=download&id='+encodeURIComponent(id)+'&access='+encodeURIComponent(access)+'&slug='+encodeURIComponent(x.slug)+'">⬇ Descargar PDF</a>':'<span class="stat">PDF al aprobar</span>')+'</div>').join('');
+  const retry=status==='pending'&&!hasProof?'<div class="proof-retry"><h3>📸 Adjunta tu comprobante</h3><p class="muted" style="font-size:12px">Tu pedido se encuentra registrado. Agrega una captura del pago para enviarlo a revisión.</p><form id="proofRetryForm"><div class="field"><label>Captura o foto del pago (JPG, PNG o WebP · hasta 8 MB)</label><input type="file" name="proof" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" required></div><button type="submit" id="proofRetrySubmit" class="btn primary wide">📤 Enviar comprobante</button><p id="proofRetryError" class="muted" role="alert"></p></form></div>':'';
+  const success=status==='pending'&&hasProof?'<div class="notice success" style="margin:14px 0">✓ Captura adjuntada correctamente. Tu comprobante está a la espera de revisión.</div>':'';
+  const games=status==='approved'?'<div class="notice success" style="margin:18px 0"><strong>🎮 ¡Tu regalo digital está listo!</strong><p>Entra a tu plataforma exclusiva de aventuras bíblicas. Tus juegos se desbloquean al abrir el acceso.</p><a class="btn primary wide" href="'+API+'?action=games&id='+encodeURIComponent(id)+'&access='+encodeURIComponent(access)+'">🎮 Abrir mis juegos bíblicos →</a></div>':'';
+  app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><span class="kicker">Tus Frases Inspiradoras Store</span><h2>📦 Tu pedido</h2><div class="notice '+(status==='approved'||hasProof?'success':'')+'">'+statusText+'</div><p class="muted">Referencia de pedido: <strong>'+esc(id)+'</strong></p>'+success+rows+retry+'<p class="muted" style="font-size:12px">Guarda tu enlace privado para consultar tus cuentos y los juegos después de verificar el pago.</p>'+games+(status==='pending'?'<button class="btn ghost" onclick="location.reload()">🔄 Actualizar estado</button>':'')+' <a class="btn outline" href="/">Volver al catálogo</a></div></main>');
+  const form=document.getElementById('proofRetryForm');
+  if(form)form.addEventListener('submit',async event=>{
+   event.preventDefault();
+   const button=document.getElementById('proofRetrySubmit'),notice=document.getElementById('proofRetryError'),file=new FormData(form).get('proof');
+   if(!(file instanceof File)||!receiptMime(file)||file.size<100||file.size>proofLimit){notice.textContent='Selecciona una imagen JPG, PNG o WebP de hasta 8 MB.';return;}
+   button.disabled=true;notice.textContent='';
+   try{
+    await uploadCustomerProof(file,id,access,stage=>{button.textContent=stage;});
+    await statusPage();
+   }catch(e){notice.textContent=e.message;button.disabled=false;button.textContent='📤 Reintentar envío de comprobante';}
+  });
+ }catch(e){
+  app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><h2>Enlace inválido</h2><p class="muted">'+esc(e.message)+'</p><a href="/" class="btn primary">Ver cuentos</a></div></main>');
+ }
 }
 async function adminPage(){
  app.className='';app.innerHTML=shell('<main class="wrap admin-wrap"><h1>🔐 Administración Store</h1><div id="adminArea" class="panel"><p class="muted">Verificando acceso…</p></div></main>');
