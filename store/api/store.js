@@ -286,7 +286,7 @@ module.exports=async(req,res)=>{
   res.setHeader('Set-Cookie','tfi_admin='+encodeURIComponent(t+'.'+n+'.'+s)+'; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200');return send(res,{ok:true});
  }
  if(req.method==='POST'&&a==='logout'){res.setHeader('Set-Cookie','tfi_admin=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return send(res,{ok:true});}
- if(['admin-state','review','payment-settings','upload-ticket','save-asset','price','proof-image'].includes(a)){
+ if(['admin-state','review','revoke','payment-settings','upload-ticket','save-asset','price','proof-image'].includes(a)){
   if(!admin(req))return fail(res,'Inicia sesión de administrador.',401);
   if(req.method==='GET'&&a==='proof-image'){
    const id=u.searchParams.get('id');
@@ -315,6 +315,12 @@ module.exports=async(req,res)=>{
    }
    const r=await db.query("UPDATE store_orders SET status=$2,reviewed_at=now() WHERE id=$1 AND status='pending' AND (proof_required=false OR payment_proof_path IS NOT NULL OR $2='rejected')",[b.id,b.status]);
    return r.rowCount?send(res,{ok:true}):fail(res,'Pedido procesado o inexistente.',409);
+  }
+  if(a==='revoke'){
+   const id=String(b.id||'');
+   if(!uuid(id)||b.confirm!==true)return fail(res,'Confirma el pedido que deseas revocar.');
+   const changed=await db.query("UPDATE store_orders SET status='rejected',reviewed_at=now(),revoked_at=now() WHERE id=$1 AND status='approved' RETURNING id",[id]);
+   return changed.rowCount?send(res,{ok:true,status:'rejected'}):fail(res,'Este pedido ya fue procesado o revocado.',409);
   }
   if(a==='payment-settings'){
    const x={};for(const k of ['pago_movil','transferencia','internacional','whatsapp'])x[k]=String(b[k]||'').trim().slice(0,600);
