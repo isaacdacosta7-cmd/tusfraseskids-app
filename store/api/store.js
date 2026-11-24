@@ -45,10 +45,14 @@ module.exports=async(req,res)=>{
   if(p.length!==ids.length||p.some(x=>!x.pdf_path))return fail(res,'Hay cuentos todavía en preparación.',409);
   const count=(await db.query("SELECT count(*)::int AS c FROM store_orders WHERE customer_email=$1 AND created_at>now()-interval '1 hour'",[email])).rows[0].c;
   if(count>=5)return fail(res,'Límite temporal de pedidos alcanzado.',429);
-  const id=randomUUID(),access=randomBytes(32).toString('hex'),total=p.reduce((s,x)=>s+x.price_cents,0),c=await db.connect();
-  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,name,email,method,reference,total,hash(access)]);for(const x of p)await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,x.price_cents]);await c.query('COMMIT');}
+  const regular=p.reduce((sum,item)=>sum+item.price_cents,0);
+  const isBundle=ids.length===6&&p.length===6&&p.every(item=>item.price_cents===500);
+  const total=isBundle?Math.min(regular,Number(cfg.bundle_price_cents||2400)):regular;
+  const perItemPrice=isBundle?Math.floor(total/p.length):0;
+  const id=randomUUID(),access=randomBytes(32).toString('hex'),c=await db.connect();
+  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,name,email,method,reference,total,hash(access)]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
   catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
-  return send(res,{id,access,total_cents:total,status:'pending'},201);
+  return send(res,{id,access,total_cents:total,bundle_applied:isBundle,status:'pending'},201);
  }
  if(req.method==='GET'&&a==='order'){
   const id=u.searchParams.get('id'),access=u.searchParams.get('access');
