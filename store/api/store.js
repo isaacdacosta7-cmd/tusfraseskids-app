@@ -112,9 +112,22 @@ module.exports=async(req,res)=>{
   if(!uuid(id)||!access||access.length!==64||!slug(book))return fail(res,'Enlace inválido.');
   const q=(await db.query("SELECT p.pdf_path FROM store_orders o JOIN store_order_items i ON i.order_id=o.id JOIN store_products p ON p.slug=i.product_slug WHERE o.id=$1 AND o.access_token_hash=$2 AND o.status='approved' AND p.slug=$3",[id,hash(access),book])).rows;
   if(!q.length||!q[0].pdf_path)return fail(res,'La descarga requiere un pago verificado.',403);
-  const url=await presign(q[0].pdf_path,'get',5);
+  // Stream paid PDF files via this trusted same-origin function.
+  // Private Blob presigned GET redirects may point browsers to an inaccessible storage endpoint.
+  const file=await get(q[0].pdf_path,{access:'private'});
+  if(!file||file.statusCode!==200||!file.stream)return fail(res,'El archivo PDF está temporalmente indisponible.',503);
   await db.query('INSERT INTO store_download_log(order_id,product_slug) VALUES($1,$2)',[id,book]).catch(()=>{});
-  res.writeHead(302,{Location:url,'Cache-Control':'no-store'});return res.end();
+  res.writeHead(200,{
+    'Content-Type':'application/pdf',
+    'Content-Disposition':'attachment; filename="'+book+'.pdf"',
+    'Cache-Control':'private, no-store, max-age=0',
+    'CDN-Cache-Control':'no-store',
+    'Vercel-CDN-Cache-Control':'no-store',
+    'X-Content-Type-Options':'nosniff',
+    'Referrer-Policy':'no-referrer'
+  });
+  Readable.fromWeb(file.stream).on('error',error=>{console.error('pdf-download-stream',error.message);res.destroy(error);}).pipe(res);
+  return;
  }
  if(req.method==='GET'&&a==='cover'){
   const book=u.searchParams.get('slug');if(!slug(book))return fail(res,'Portada inválida.');
