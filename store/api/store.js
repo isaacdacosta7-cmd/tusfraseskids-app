@@ -1,7 +1,9 @@
 
 'use strict';
 const {Pool}=require('pg');
-const {randomBytes,randomUUID,createHash,createHmac,timingSafeEqual}=require('crypto');
+const {randomBytes,randomUUID,createHash,createHmac,timingSafeEqual,scrypt:nodeScrypt}=require('crypto');
+const {promisify}=require('node:util');
+const scrypt=promisify(nodeScrypt);
 const {issueSignedToken,presignUrl,head,get}=require('@vercel/blob');
 const proofTypes=Object.freeze({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'});
 const proofSizeLimit=8*1024*1024;
@@ -21,6 +23,78 @@ function admin(req){
  return eq(s,createHmac('sha256',process.env.STORE_SESSION_SECRET).update(t+'.'+n).digest('hex'));
 }
 async function settings(){return (await db.query('SELECT * FROM store_settings WHERE id=1')).rows[0];}
+
+const BUYER_COOKIE='tfi_buyer';
+const BUYER_SESSION_SECONDS=30*24*60*60;
+const cleanPhone=x=>String(x||'').replace(/[^0-9]/g,'');
+const validEmail=x=>typeof x==='string'&&x.length<=160&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x);
+const validPass=x=>typeof x==='string'&&x.length>=10&&x.length<=128;
+function buyerSession(req){
+ try{
+  const raw=String(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith(BUYER_COOKIE+'='));
+  if(!raw)return null;
+  const token=decodeURIComponent(raw.slice(BUYER_COOKIE.length+1));
+  const parts=token.split('.');if(parts.length!==2)return null;
+  const [payload,signature]=parts;
+  if(payload.length>600||!/^[a-f0-9]{64}$/.test(signature))return null;
+  const key=process.env.STORE_SESSION_SECRET;if(!key)return null;
+  const expected=createHmac('sha256',key).update('buyer-session:'+payload).digest('hex');
+  if(!eq(expected,signature))return null;
+  const data=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
+  if(!uuid(data.id)||!validEmail(data.email)||!Number.isInteger(data.exp)||data.exp<Date.now()/1000)return null;
+  return {id:data.id,email:data.email};
+ }catch{return null}
+}
+function setBuyerSession(res,id,email){
+ const now=Math.floor(Date.now()/1000);
+ const payload=Buffer.from(JSON.stringify({id,email,exp:now+BUYER_SESSION_SECONDS,nonce:randomBytes(12).toString('hex')})).toString('base64url');
+ const sig=createHmac('sha256',process.env.STORE_SESSION_SECRET).update('buyer-session:'+payload).digest('hex');
+ res.setHeader('Set-Cookie',BUYER_COOKIE+'='+encodeURIComponent(payload+'.'+sig)+'; Path=/; Max-Age='+BUYER_SESSION_SECONDS+'; HttpOnly; Secure; SameSite=Lax');
+}
+async function passwordDigest(pass,salt){
+ return (await scrypt(pass,salt,64)).toString('hex');
+}
+function equalHex(a,b){
+ if(typeof a!=='string'||typeof b!=='string'||a.length!==128||b.length!==128)return false;
+ return timingSafeEqual(Buffer.from(a,'hex'),Buffer.from(b,'hex'));
+}
+async function verifyPassword(pass,user){
+ return equalHex(await passwordDigest(pass,user.password_salt),user.password_hash);
+}
+async function consumeAuthAttempt(req){
+ const raw=String(req.headers['x-vercel-forwarded-for']||req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',')[0].trim();
+ const key=createHmac('sha256',String(process.env.STORE_SESSION_SECRET||'')).update('buyer-attempt:'+raw).digest('hex');
+ const q=await db.query("INSERT INTO store_customer_auth_attempts(attempt_key,attempts,window_start) VALUES($1,1,now()) ON CONFLICT(attempt_key) DO UPDATE SET attempts=CASE WHEN store_customer_auth_attempts.window_start<now()-interval '15 minutes' THEN 1 ELSE store_customer_auth_attempts.attempts+1 END, window_start=CASE WHEN store_customer_auth_attempts.window_start<now()-interval '15 minutes' THEN now() ELSE store_customer_auth_attempts.window_start END RETURNING attempts",[key]);
+ return q.rows[0].attempts<=12;
+}
+async function ownedOrder(req,id,access){
+ if(!uuid(id))return null;
+ const session=buyerSession(req),validAccess=typeof access==='string'&&/^[a-f0-9]{64}$/i.test(access);
+ if(!session&&!validAccess)return null;
+ const rows=(await db.query("SELECT id,customer_id,status,total_cents,created_at,(payment_proof_path IS NOT NULL) AS proof_uploaded FROM store_orders WHERE id=$1 AND (($2::uuid IS NOT NULL AND customer_id=$2::uuid) OR ($3::text IS NOT NULL AND access_token_hash=$3::text))",[id,session?.id||null,validAccess?hash(access):null])).rows;
+ return rows[0]||null;
+}
+async function accountForCheckout(req,res,{email,name,whatsapp,password}){
+ const session=buyerSession(req);
+ if(session){
+  if(session.email!==email)throw Object.assign(Error('Inicia sesión con el correo de tu cuenta para comprar.'),{status:401});
+  const user=(await db.query('SELECT id FROM store_customers WHERE id=$1 AND email=$2',[session.id,email])).rows[0];
+  if(user)return user.id;
+ }
+ if(!validPass(password))throw Object.assign(Error('Crea una contraseña de 10 caracteres como mínimo para recuperar tus compras.'),{status:400});
+ const existing=(await db.query('SELECT id,password_salt,password_hash FROM store_customers WHERE email=$1',[email])).rows[0];
+ if(existing){
+  if(!await verifyPassword(password,existing))throw Object.assign(Error('Este correo ya tiene cuenta. Utiliza su contraseña o entra a Mis compras.'),{status:401});
+  setBuyerSession(res,existing.id,email);
+  return existing.id;
+ }
+ const salt=randomBytes(20).toString('hex'),encoded=await passwordDigest(password,salt),id=randomUUID();
+ const result=await db.query('INSERT INTO store_customers(id,email,name,whatsapp,password_salt,password_hash) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(email) DO NOTHING RETURNING id',[id,email,name,cleanPhone(whatsapp),salt,encoded]);
+ if(!result.rows.length)throw Object.assign(Error('El correo ya está registrado. Inicia sesión con tu contraseña.'),{status:409});
+ setBuyerSession(res,id,email);
+ return id;
+}
+
 async function presign(path,operation,minutes){
  const t=Date.now();
  const token=await issueSignedToken({pathname:path,operations:[operation],validUntil:t+Math.max(minutes,10)*60000});
