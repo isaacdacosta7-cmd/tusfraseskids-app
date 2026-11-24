@@ -25,6 +25,7 @@
 .checkout-steps{display:flex;gap:6px;align-items:center;justify-content:space-between;font-size:11px;color:#8e879e;margin-bottom:22px}.checkout-steps span{padding:9px 8px;background:#f6f3fb;border-radius:10px;font-weight:800;flex:1;text-align:center}.checkout-steps .completed{color:#20743d;background:#e7f8ee}.checkout-steps .selected{background:#eee7ff;color:#5733bc}.checkout-summary{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(110deg,#fff4cd,#f5ecff);border:1px solid #f1e3c9;border-radius:16px;padding:16px;gap:12px;margin:19px 0}.checkout-summary strong{font-size:14px}.checkout-summary small{display:block;font-size:11px;color:#655c7c;margin-top:6px}.checkout-summary del{display:block;color:#92889e;font-size:12px}.checkout-summary .checkout-total{display:block;font-weight:800;color:#5d31c8;font-size:29px;letter-spacing:-1px}.checkout-h3{font-size:16px!important;padding:17px 0 8px!important;margin:12px 0 2px!important;border-bottom:1px solid #eee9f7}.checkout-form .field small{font-size:11px;color:#756d87}.proof-picker{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:165px;padding:20px;border:2px dashed #9f8adf;border-radius:18px;background:#f9f6ff;text-align:center;color:#5940ad;cursor:pointer;margin:16px 0}.proof-picker:hover{background:#f1eaff}.proof-picker strong{font-size:14px}.proof-picker span:not(.proof-pictogram){font-size:12px;color:#706782;word-break:break-word}.proof-picker small{color:#8a8297;font-size:10px}.proof-picker input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.proof-pictogram{font-size:35px}.receipt-preview{width:auto;max-width:100%;max-height:190px;object-fit:contain;border:1px solid #e9e3f2;border-radius:14px;margin:10px auto}.checkout-safety{background:#f0f7fb;padding:13px;border-radius:12px;font-size:11px;line-height:1.5;color:#466074;margin:13px 0 18px}.checkout-note{font-size:11px;color:#807789;text-align:center;margin:13px 0 0}.checkout-success-icon{text-align:center;font-size:55px;margin:4px 0 14px}.proof-retry{border:1px solid #e6ddfc;border-radius:18px;padding:18px;background:#faf8ff;margin:16px 0}
 
 .coming-soon{padding:65px 0 84px;background:linear-gradient(180deg,#fefcff 0%,#f7f3ff 100%);border-top:1px solid var(--line)}.coming-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}.coming-card{border:1px solid #e8e1f5;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 12px 30px #241c4910}.coming-art{height:185px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}.coming-noe{background:linear-gradient(135deg,#a5ecdd,#75aef7)}.coming-moises{background:linear-gradient(135deg,#91d8fa,#d3b2f6)}.coming-ester{background:linear-gradient(135deg,#fbd0e1,#ddbdff)}.coming-emoji{font-size:83px;filter:drop-shadow(0 10px 8px #39245b21)}.coming-sparkle{position:absolute;right:16px;bottom:10px;font-size:38px}.coming-tag{position:absolute;top:14px;left:14px;background:#fff;color:#5c38b2;font-weight:800;font-size:11px;padding:8px 12px;border-radius:30px;letter-spacing:.5px}.coming-info{padding:20px 21px 24px}.coming-info h3{margin:0 0 7px;font-size:18px}.coming-info p{font-size:12px;color:#756f8b;line-height:1.65;min-height:42px;margin:0 0 12px}.coming-wait{display:inline-block;color:#5f3bc0;background:#f0eaff;border-radius:10px;padding:7px 11px;font-weight:800;font-size:11px}@media(max-width:650px){.coming-soon{padding:48px 0}.coming-grid{grid-template-columns:1fr;gap:14px}.coming-card{display:flex;align-items:stretch}.coming-art{width:40%;height:auto;min-height:145px;flex-shrink:0}.coming-emoji{font-size:56px}.coming-info{padding:16px;flex:1}.coming-info h3{font-size:16px}.coming-info p{min-height:0}.coming-tag{left:7px;top:8px;font-size:8px;padding:5px 7px}.coming-sparkle{font-size:24px;right:5px}}
+@media(max-width:650px){.top .game-nav{display:none}}
 </style>
 </head>
 <body><div id="app" class="loading">Preparando las historias…</div>
@@ -38,11 +39,13 @@ const palettes=[
 ];
 let products=[],config={},cart=[],adminData=null,bundle={price_cents:2400,regular_price_cents:3000,savings_cents:600,discount_percent:20};
 const app=document.getElementById('app');
+try{const saved=JSON.parse(localStorage.getItem('tfi_store_cart')||'[]');if(Array.isArray(saved))cart=saved.filter(x=>typeof x==='string'&&/^[a-z0-9-]+$/.test(x)).slice(0,6);}catch{}
+function persistCart(){try{localStorage.setItem('tfi_store_cart',JSON.stringify(cart));}catch{}}
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'$'+(Number(n||0)/100).toFixed(2);
 function post(data){return fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(async r=>{const v=await r.json();if(!r.ok)throw Error(v.error||'Error en el servidor');return v;});}
 function get(action,params){return fetch(API+'?'+new URLSearchParams(Object.assign({action},params||{}))).then(async r=>{const x=await r.json();if(!r.ok)throw Error(x.error||'Error');return x;});}
-function shell(body){return '<header class="top"><div class="wrap top-inner"><a class="brand" href="/"><span class="brandmark">📖</span><span>Tus Frases<br>Inspiradoras <small>STORE</small></span></a><div style="display:flex;gap:7px;align-items:center"><a href="'+game+'" class="btn ghost sm">🎮 Juegos</a><button class="btn primary sm" onclick="openCart()">🛍️ <span id="cartNum">'+cart.length+'</span></button></div></div></header>'+body+'<footer class="foot"><div class="wrap"><span>© Tus Frases Inspiradoras · Cuentos bíblicos ilustrados</span><span><a href="'+game+'">Juegos interactivos</a> · <a href="/admin">Administración</a></span></div></footer>';}
+function shell(body){return '<header class="top"><div class="wrap top-inner"><a class="brand" href="/"><span class="brandmark">📖</span><span>Tus Frases<br>Inspiradoras <small>STORE</small></span></a><div style="display:flex;gap:7px;align-items:center"><a href="/mis-compras" class="btn ghost sm">👤 Mis compras</a><a href="'+game+'" class="btn ghost sm game-nav">🎮 Juegos</a><button class="btn primary sm" onclick="openCart()">🛍️ <span id="cartNum">'+cart.length+'</span></button></div></div></header>'+body+'<footer class="foot"><div class="wrap"><span>© Tus Frases Inspiradoras · Cuentos bíblicos ilustrados</span><span><a href="'+game+'">Juegos interactivos</a> · <a href="/admin">Administración</a></span></div></footer>';}
 function card(p,i){
 const palette=palettes[i%palettes.length];
 const img=p.has_cover?'<img loading="lazy" alt="'+esc(p.title)+'" src="'+API+'?action=cover&slug='+encodeURIComponent(p.slug)+'&v=2" onerror="this.remove()"><span class="emoji">'+palette[2]+'</span><span class="short-title">'+esc(p.title)+'</span>':'<span class="emoji">'+palette[2]+'</span><span class="short-title">'+esc(p.title)+'</span>';
@@ -66,7 +69,7 @@ function store(){
  );
 }
 window.buyCollection=function(){
- cart=products.filter(p=>p.ready).map(p=>p.slug);
+ cart=products.filter(p=>p.ready).map(p=>p.slug);persistCart();
  if(cart.length===6){syncCartButtons();openCart();}else{alert('Estamos preparando uno de los cuentos.');}
 };
 function syncCartButtons(){
@@ -84,7 +87,7 @@ function syncCartButtons(){
 }
 window.toggleCart=function(id){
  cart=cart.includes(id)?cart.filter(x=>x!==id):cart.concat(id);
- syncCartButtons();
+ persistCart();syncCartButtons();
 };
 function cartQuote(){
  const selected=products.filter(p=>cart.includes(p.slug)),regular=selected.reduce((n,p)=>n+p.price_cents,0);
@@ -100,7 +103,7 @@ window.openCart=function(){
  const totalMarkup=quote.collection?'<del style="color:#8e819b;margin-right:10px">'+money(quote.regular)+'</del>':'';
  showModal('<h2>🛍️ Mis cuentos</h2><p class="muted">¡Cada cuento también incluye acceso exclusivo a juegos bíblicos!</p><div class="cart-list">'+(books.length?books.map(x=>'<div class="cart-item"><strong>'+esc(x.title)+'</strong><span>'+money(x.price_cents)+' <button class="btn sm ghost" onclick="removeFromCart(\''+x.slug+'\')">Quitar</button></span></div>').join(''):'<p class="muted">Aún no has elegido cuentos.</p>')+'</div>'+details+'<div class="price-row"><strong>Total a pagar</strong><span>'+totalMarkup+'<strong class="price">'+money(quote.total)+'</strong></span></div><div style="height:16px"></div><button class="btn primary wide" '+(!books.length?'disabled':'')+' onclick="checkout()">Continuar a la compra →</button>');
 };
-window.removeFromCart=id=>{cart=cart.filter(x=>x!==id);syncCartButtons();openCart();};
+window.removeFromCart=id=>{cart=cart.filter(x=>x!==id);persistCart();syncCartButtons();openCart();};
 function showModal(body){document.getElementById('modal')?.remove();const m=document.createElement('div');m.className='overlay';m.id='modal';m.innerHTML='<div class="modal"><button class="close" aria-label="Cerrar" onclick="closeModal()">×</button>'+body+'</div>';m.addEventListener('click',e=>{if(e.target===m)closeModal();});document.body.appendChild(m);}
 window.closeModal=function(){document.getElementById('modal')?.remove();};
 
@@ -166,12 +169,12 @@ window.checkout=function(){
    order=await post({action:'checkout',name:fd.get('name'),email:fd.get('email'),whatsapp:fd.get('whatsapp'),method:fd.get('method'),reference:fd.get('reference'),slugs:cart});
    await uploadCustomerProof(file,order.id,order.access,stage=>{btn.textContent=stage;});
    const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
-   cart=[];syncCartButtons();
+   cart=[];persistCart();syncCartButtons();
    showModal('<div class="checkout-success-icon">✅</div><h2>¡Compra registrada!</h2><div class="notice success"><strong>📸 Comprobante recibido correctamente.</strong> Tu pago está pendiente de revisión.</div><p class="muted">Una vez aprobado podrás descargar los cuentos y entrar a tus juegos exclusivos.</p><a class="btn primary wide" href="'+url+'">📦 Ver estado de mi pedido</a>');
   }catch(err){
    if(order){
     const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
-    cart=[];syncCartButtons();
+    cart=[];persistCart();syncCartButtons();
     showModal('<h2>📦 Tu pedido está registrado</h2><div class="notice">La captura todavía necesita cargarse: '+esc(err.message)+'</div><p class="muted">Ingresa a tu pedido y adjunta nuevamente el comprobante. Allí podrás consultar el estado de tu pago.</p><a class="btn primary wide" href="'+url+'">📸 Adjuntar mi captura de pago</a>');
    }else{
     alert(err.message);
