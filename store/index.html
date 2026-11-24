@@ -62,9 +62,25 @@ function store(){
 }
 window.buyCollection=function(){
  cart=products.filter(p=>p.ready).map(p=>p.slug);
- if(cart.length===6){store();openCart();}else{alert('Estamos preparando uno de los cuentos.');}
+ if(cart.length===6){syncCartButtons();openCart();}else{alert('Estamos preparando uno de los cuentos.');}
 };
-window.toggleCart=function(id){cart=cart.includes(id)?cart.filter(x=>x!==id):cart.concat(id);store();document.getElementById('cuentos').scrollIntoView({block:'start'});};
+function syncCartButtons(){
+ const count=document.getElementById('cartNum');
+ if(count)count.textContent=String(cart.length);
+ document.querySelectorAll('.card button').forEach(btn=>{
+  const book=products.find(p=>btn.getAttribute('onclick')==="toggleCart('"+p.slug+"')");
+  if(!book)return;
+  const chosen=cart.includes(book.slug);
+  btn.classList.toggle('dark',chosen);
+  btn.classList.toggle('primary',!chosen);
+  btn.textContent=chosen?'✓ Elegido':'+ Agregar';
+  btn.setAttribute('aria-pressed',String(chosen));
+ });
+}
+window.toggleCart=function(id){
+ cart=cart.includes(id)?cart.filter(x=>x!==id):cart.concat(id);
+ syncCartButtons();
+};
 function cartQuote(){
  const selected=products.filter(p=>cart.includes(p.slug)),regular=selected.reduce((n,p)=>n+p.price_cents,0);
  const collection=products.length===6&&selected.length===6&&products.every(p=>cart.includes(p.slug));
@@ -79,7 +95,7 @@ window.openCart=function(){
  const totalMarkup=quote.collection?'<del style="color:#8e819b;margin-right:10px">'+money(quote.regular)+'</del>':'';
  showModal('<h2>🛍️ Mis cuentos</h2><p class="muted">¡Cada cuento también incluye acceso exclusivo a juegos bíblicos!</p><div class="cart-list">'+(books.length?books.map(x=>'<div class="cart-item"><strong>'+esc(x.title)+'</strong><span>'+money(x.price_cents)+' <button class="btn sm ghost" onclick="removeFromCart(\''+x.slug+'\')">Quitar</button></span></div>').join(''):'<p class="muted">Aún no has elegido cuentos.</p>')+'</div>'+details+'<div class="price-row"><strong>Total a pagar</strong><span>'+totalMarkup+'<strong class="price">'+money(quote.total)+'</strong></span></div><div style="height:16px"></div><button class="btn primary wide" '+(!books.length?'disabled':'')+' onclick="checkout()">Continuar a la compra →</button>');
 };
-window.removeFromCart=id=>{cart=cart.filter(x=>x!==id);store();openCart();};
+window.removeFromCart=id=>{cart=cart.filter(x=>x!==id);syncCartButtons();openCart();};
 function showModal(body){document.getElementById('modal')?.remove();const m=document.createElement('div');m.className='overlay';m.id='modal';m.innerHTML='<div class="modal"><button class="close" aria-label="Cerrar" onclick="closeModal()">×</button>'+body+'</div>';m.addEventListener('click',e=>{if(e.target===m)closeModal();});document.body.appendChild(m);}
 window.closeModal=function(){document.getElementById('modal')?.remove();};
 window.checkout=function(){
