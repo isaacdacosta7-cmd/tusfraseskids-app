@@ -119,6 +119,8 @@ module.exports=async(req,res)=>{
   if(!cfg.store_open||!String(cfg[method]||'').trim())return fail(res,'Las compras están en preparación.',409);
   const p=(await db.query('SELECT slug,price_cents,pdf_path FROM store_products WHERE slug=ANY($1::text[]) AND is_active=true',[ids])).rows;
   if(p.length!==ids.length||p.some(x=>!x.pdf_path))return fail(res,'Hay cuentos todavía en preparación.',409);
+  if(!buyerSession(req)&&!await consumeAuthAttempt(req))return fail(res,'Demasiados intentos. Prueba nuevamente más tarde.',429);
+  let customerId;try{customerId=await accountForCheckout(req,res,{email,name,whatsapp,password:String(b.password||'')});}catch(e){return fail(res,e.message,e.status||400);}
   const count=(await db.query("SELECT count(*)::int AS c FROM store_orders WHERE customer_email=$1 AND created_at>now()-interval '1 hour'",[email])).rows[0].c;
   if(count>=5)return fail(res,'Límite temporal de pedidos alcanzado.',429);
   const regular=p.reduce((sum,item)=>sum+item.price_cents,0);
