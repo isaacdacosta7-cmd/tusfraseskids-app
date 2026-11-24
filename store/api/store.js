@@ -2,7 +2,8 @@
 'use strict';
 const {Pool}=require('pg');
 const {randomBytes,randomUUID,createHash,createHmac,timingSafeEqual}=require('crypto');
-const {issueSignedToken,presignUrl,head}=require('@vercel/blob');
+const {issueSignedToken,presignUrl,head,get}=require('@vercel/blob');
+const {Readable}=require('node:stream');
 const db=new Pool({connectionString:process.env.DATABASE_URL,max:4,idleTimeoutMillis:10000});
 const hash=x=>createHash('sha256').update(String(x)).digest('hex');
 const eq=(a,b)=>timingSafeEqual(Buffer.from(hash(a),'hex'),Buffer.from(hash(b),'hex'));
@@ -69,7 +70,19 @@ module.exports=async(req,res)=>{
   const book=u.searchParams.get('slug');if(!slug(book))return fail(res,'Portada inválida.');
   const q=(await db.query('SELECT cover_path FROM store_products WHERE slug=$1 AND is_active=true',[book])).rows;
   if(!q.length||!q[0].cover_path)return fail(res,'Portada pendiente.',404);
-  res.writeHead(302,{Location:await presign(q[0].cover_path,'get',30),'Cache-Control':'public, max-age=300'});return res.end();
+  // Public catalog cover, sourced from a private Blob store.
+  // Stream through our function so browsers receive the actual JPEG bytes
+  // instead of following a redirect into private storage.
+  const result=await get(q[0].cover_path,{access:'private',ifNoneMatch:req.headers['if-none-match']||undefined});
+  if(!result)return fail(res,'Portada pendiente.',404);
+  if(result.statusCode===304){
+   res.writeHead(304,{'ETag':result.blob.etag,'Cache-Control':'public, max-age=300'});
+   return res.end();
+  }
+  if(result.statusCode!==200||!result.stream)return fail(res,'No se pudo leer la portada.',502);
+  res.writeHead(200,{'Content-Type':result.blob.contentType||'image/jpeg','Cache-Control':'public, max-age=300','ETag':result.blob.etag,'X-Content-Type-Options':'nosniff','Content-Disposition':'inline'});
+  Readable.fromWeb(result.stream).on('error',err=>{console.error('cover-stream',err.message);res.destroy(err);}).pipe(res);
+  return;
  }
  if(req.method==='POST'&&a==='login'){
   const p=String(b.password||'');
