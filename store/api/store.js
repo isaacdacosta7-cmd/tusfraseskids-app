@@ -141,8 +141,19 @@ module.exports=async(req,res)=>{
   res.setHeader('Set-Cookie','tfi_admin='+encodeURIComponent(t+'.'+n+'.'+s)+'; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200');return send(res,{ok:true});
  }
  if(req.method==='POST'&&a==='logout'){res.setHeader('Set-Cookie','tfi_admin=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return send(res,{ok:true});}
- if(['admin-state','review','payment-settings','upload-ticket','save-asset','price'].includes(a)){
+ if(['admin-state','review','payment-settings','upload-ticket','save-asset','price','proof-image'].includes(a)){
   if(!admin(req))return fail(res,'Inicia sesión de administrador.',401);
+  if(req.method==='GET'&&a==='proof-image'){
+   const id=u.searchParams.get('id');
+   if(!uuid(id))return fail(res,'Pedido inválido.');
+   const record=(await db.query('SELECT payment_proof_path,payment_proof_mime FROM store_orders WHERE id=$1',[id])).rows[0];
+   if(!record?.payment_proof_path)return fail(res,'Comprobante pendiente.',404);
+   const blob=await get(record.payment_proof_path,{access:'private'});
+   if(!blob||blob.statusCode!==200||!blob.stream)return fail(res,'Imagen temporalmente indisponible.',502);
+   res.writeHead(200,{'Content-Type':record.payment_proof_mime||'image/jpeg','Cache-Control':'private, no-store','Content-Disposition':'inline; filename="comprobante.jpg"','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
+   Readable.fromWeb(blob.stream).on('error',e=>{console.error('proof-view-stream',e.message);res.destroy(e);}).pipe(res);
+   return;
+  }
   if(req.method==='GET'&&a==='admin-state'){
    const products=(await db.query('SELECT * FROM store_products ORDER BY position')).rows;
    const orders=(await db.query("SELECT o.id,o.customer_name,o.customer_email,o.customer_whatsapp,o.payment_method,o.payment_reference,o.total_cents,o.status,o.created_at,o.proof_required,(o.payment_proof_path IS NOT NULL) AS has_proof,coalesce((SELECT json_agg(json_build_object('slug',i.product_slug,'title',p.title)) FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=o.id),'[]'::json) AS items FROM store_orders o ORDER BY created_at DESC LIMIT 100")).rows;
