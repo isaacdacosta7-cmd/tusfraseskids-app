@@ -148,6 +148,7 @@ window.checkout=function(){
  '<div class="field"><label for="buyerName">Nombre y apellido *</label><input id="buyerName" name="name" autocomplete="name" maxlength="100" required minlength="3" placeholder="Nombre del comprador"></div>'+
  '<div class="field"><label for="buyerEmail">Correo electrónico *</label><input id="buyerEmail" name="email" autocomplete="email" type="email" maxlength="160" required placeholder="ejemplo@correo.com"></div>'+
  '<div class="field"><label for="buyerPhone">Número de WhatsApp *</label><input id="buyerPhone" name="whatsapp" type="tel" autocomplete="tel" required minlength="10" maxlength="30" placeholder="+58 412 1234567" inputmode="tel"><small>Para poder contactar contigo si necesitamos verificar algún dato.</small></div>'+
+ '<div class="field" id="accountPasswordRow"><label for="buyerPassword">Contraseña para tu cuenta de Mis compras *</label><input id="buyerPassword" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" required placeholder="Mínimo 10 caracteres"><small>Te servirá para recuperar tus cuentos desde cualquier dispositivo. Si ya tienes cuenta, utiliza tu contraseña actual.</small></div>'+
  '<h3 class="checkout-h3">2. Realiza el pago</h3>'+
  '<div class="field"><label for="payMethod">Selecciona tu método de pago *</label><select name="method" id="payMethod" onchange="payDetails()">'+choices.map(k=>'<option value="'+k+'">'+methodLabels[k]+'</option>').join('')+'</select></div>'+
  '<div class="pay-note" id="payDetails"></div>'+
@@ -159,6 +160,17 @@ window.checkout=function(){
  '<button class="btn primary wide checkout-submit" id="submitBuy" type="submit">📦 Enviar compra para verificación · '+money(quote.total)+'</button>'+
  '<p class="checkout-note">Después de validar el pago podrás descargar tus cuentos y abrir tus juegos bíblicos exclusivos.</p></form>');
  payDetails();
+ get('customer-me').then(result=>{
+  const buyer=result.customer;
+  const fields={name:'buyerName',email:'buyerEmail',whatsapp:'buyerPhone'};
+  Object.entries(fields).forEach(([key,elementId])=>{
+   const input=document.getElementById(elementId);
+   if(input&&buyer[key]){input.value=buyer[key];if(key==='email')input.readOnly=true;}
+  });
+  const row=document.getElementById('accountPasswordRow');
+  const password=document.getElementById('buyerPassword');
+  if(row&&password){row.innerHTML='<div class="notice success">👤 Compra vinculada a tu cuenta <strong>'+esc(buyer.email)+'</strong>. Podrás recuperar tus cuentos en Mis compras.</div>'; }
+ }).catch(()=>{});
  document.getElementById('buyForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const btn=document.getElementById('submitBuy'),fd=new FormData(e.target),file=fd.get('proof');
@@ -166,11 +178,11 @@ window.checkout=function(){
   btn.disabled=true;btn.textContent='Registrando tu compra…';
   let order=null;
   try{
-   order=await post({action:'checkout',name:fd.get('name'),email:fd.get('email'),whatsapp:fd.get('whatsapp'),method:fd.get('method'),reference:fd.get('reference'),slugs:cart});
+   order=await post({action:'checkout',name:fd.get('name'),email:fd.get('email'),whatsapp:fd.get('whatsapp'),password:fd.get('password')||'',method:fd.get('method'),reference:fd.get('reference'),slugs:cart});
    await uploadCustomerProof(file,order.id,order.access,stage=>{btn.textContent=stage;});
    const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
    cart=[];persistCart();syncCartButtons();
-   showModal('<div class="checkout-success-icon">✅</div><h2>¡Compra registrada!</h2><div class="notice success"><strong>📸 Comprobante recibido correctamente.</strong> Tu pago está pendiente de revisión.</div><p class="muted">Una vez aprobado podrás descargar los cuentos y entrar a tus juegos exclusivos.</p><a class="btn primary wide" href="'+url+'">📦 Ver estado de mi pedido</a>');
+   showModal('<div class="checkout-success-icon">✅</div><h2>¡Compra registrada!</h2><div class="notice success"><strong>📸 Comprobante recibido correctamente.</strong> Tu pago está pendiente de revisión.</div><p class="muted">Una vez aprobado podrás descargar los cuentos y entrar a tus juegos exclusivos.</p><a class="btn primary wide" href="'+url+'">📦 Ver estado de mi pedido</a><a class="btn outline wide" style="margin-top:9px" href="/mis-compras">👤 Ir a Mis compras</a>');
   }catch(err){
    if(order){
     const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
