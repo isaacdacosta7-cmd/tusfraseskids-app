@@ -13,7 +13,7 @@ function equal(a,b){return typeof a==='string'&&typeof b==='string'&&a.length===
 function cookieValue(req,name){const item=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(name+'='));return item?.slice(name.length+1)}
 function session(req){
  try{const token=cookieValue(req,'tfi_session');if(!token||token.length>800)return null;const [body,sig]=token.split('.');if(!equal(sig,digest('session',body)))return null;
- const data=JSON.parse(Buffer.from(body,'base64url').toString());if(data.exp<Date.now()/1000||!allowed.has(data.code))return null;return data;
+ const data=JSON.parse(Buffer.from(body,'base64url').toString());if(data.exp<Date.now()/1000||!(allowed.has(data.code)||(data.source==='store'&&/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(data.order))))return null;return data;
  }catch{return null}
 }
 function headers(res){
@@ -51,6 +51,22 @@ module.exports=async function portal(req,res){
   const url=new URL(req.url,'https://portal.local');
   const asset=String(req.query?.asset??url.searchParams.get('asset')??'');
   const action=String(req.query?.action??url.searchParams.get('action')??'');
+  if(action==='claim'){
+   if(req.method!=='GET')return json(res,405,{error:'Método inválido.'});
+   const ticket=String(url.searchParams.get('ticket')||'');
+   if(!process.env.STORE_GAME_ACCESS_SECRET||ticket.length>750)return json(res,403,{error:'Acceso inválido.'});
+   const parts=ticket.split('.');
+   if(parts.length!==2||parts[0].length>600||!/^[a-f0-9]{64}$/.test(parts[1]))return json(res,403,{error:'Acceso inválido.'});
+   const expected=crypto.createHmac('sha256',process.env.STORE_GAME_ACCESS_SECRET).update('store-ticket:'+parts[0]).digest('hex');
+   if(!equal(parts[1],expected))return json(res,403,{error:'Acceso inválido.'});
+   let info;try{info=JSON.parse(Buffer.from(parts[0],'base64url').toString('utf8'))}catch{return json(res,403,{error:'Acceso inválido.'})}
+   const now=Math.floor(Date.now()/1000);
+   if(!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(info.order)||!Number.isInteger(info.exp)||info.exp<now||info.exp>now+130||typeof info.nonce!=='string'||info.nonce.length!==24)return json(res,403,{error:'Enlace vencido o inválido.'});
+   const data={source:'store',order:info.order,exp:now+SESSION_SECONDS,nonce:crypto.randomBytes(12).toString('hex')};
+   const encoded=Buffer.from(JSON.stringify(data)).toString('base64url');
+   setCookie(res,encoded+'.'+digest('session',encoded));
+   res.statusCode=303;res.setHeader('Location','/juegos');return res.end();
+  }
   if(action==='enter'){
    if(req.method!=='POST')return json(res,405,{error:'Método inválido.'});
    // Require a same-origin browser request. The fetch header is also a CSRF barrier.
