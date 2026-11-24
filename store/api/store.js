@@ -62,6 +62,17 @@ module.exports=async(req,res)=>{
   const items=(await db.query('SELECT p.slug,p.title,p.pages,p.pdf_path IS NOT NULL AS ready FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=$1 ORDER BY p.position',[id])).rows;
   return send(res,{order:q[0],items});
  }
+ if(req.method==='GET'&&a==='games'){
+  const id=u.searchParams.get('id'), access=u.searchParams.get('access');
+  if(!uuid(id)||!access||access.length!==64)return fail(res,'Enlace inválido.');
+  const result=await db.query("SELECT 1 FROM store_orders WHERE id=$1 AND access_token_hash=$2 AND status='approved'",[id,hash(access)]);
+  if(!result.rows.length)return fail(res,'El acceso a los juegos requiere un pago verificado.',403);
+  if(!process.env.STORE_GAME_ACCESS_SECRET)return fail(res,'Acceso en preparación.',503);
+  const payload=Buffer.from(JSON.stringify({order:id,exp:Math.floor(Date.now()/1000)+120,nonce:randomBytes(12).toString('hex')})).toString('base64url');
+  const sig=createHmac('sha256',process.env.STORE_GAME_ACCESS_SECRET).update('store-ticket:'+payload).digest('hex');
+  const url='https://tusfrasesinspiradoras.vercel.app/juegos/claim?ticket='+encodeURIComponent(payload+'.'+sig);
+  res.writeHead(302,{Location:url,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'});return res.end();
+ }
  if(req.method==='GET'&&a==='download'){
   const id=u.searchParams.get('id'),access=u.searchParams.get('access'),book=u.searchParams.get('slug');
   if(!uuid(id)||!access||access.length!==64||!slug(book))return fail(res,'Enlace inválido.');
