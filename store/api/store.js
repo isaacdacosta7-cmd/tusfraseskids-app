@@ -35,9 +35,9 @@ module.exports=async(req,res)=>{
   return send(res,{products:p,settings:cfg,bundle:{price_cents:bundlePrice,regular_price_cents:regular,savings_cents:regular-bundlePrice,discount_percent:regular?Math.round(100*(regular-bundlePrice)/regular):0,product_count:p.length}});
  }
  if(req.method==='POST'&&a==='checkout'){
-  const name=String(b.name||'').trim().slice(0,100),email=String(b.email||'').trim().toLowerCase().slice(0,160),reference=String(b.reference||'').trim().slice(0,100);
+  const name=String(b.name||'').trim().slice(0,100),email=String(b.email||'').trim().toLowerCase().slice(0,160),reference=String(b.reference||'').trim().slice(0,100),whatsapp=String(b.whatsapp||'').trim().slice(0,30);
   const method=String(b.method||''),ids=[...new Set(Array.isArray(b.slugs)?b.slugs:[])];
-  if(name.length<3||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)||reference.length<3)return fail(res,'Completa nombre, correo y referencia.');
+  if(name.length<3||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)||reference.length<3||!/^[+\d()\s.-]{10,30}$/.test(whatsapp)||!/^\d{10,15}$/.test(whatsapp.replace(/\D/g,'')))return fail(res,'Completa nombre, correo, WhatsApp y referencia válida.');
   if(!['pago_movil','transferencia','internacional'].includes(method)||ids.length<1||ids.length>6||!ids.every(slug))return fail(res,'Pedido inválido.');
   const cfg=await settings();
   if(!cfg.store_open||!String(cfg[method]||'').trim())return fail(res,'Las compras están en preparación.',409);
@@ -50,14 +50,14 @@ module.exports=async(req,res)=>{
   const total=isBundle?Math.min(regular,Number(cfg.bundle_price_cents||2400)):regular;
   const perItemPrice=isBundle?Math.floor(total/p.length):0;
   const id=randomUUID(),access=randomBytes(32).toString('hex'),c=await db.connect();
-  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,name,email,method,reference,total,hash(access)]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
+  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash,customer_whatsapp,proof_required) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)',[id,name,email,method,reference,total,hash(access),whatsapp]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
   catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   return send(res,{id,access,total_cents:total,bundle_applied:isBundle,status:'pending'},201);
  }
  if(req.method==='GET'&&a==='order'){
   const id=u.searchParams.get('id'),access=u.searchParams.get('access');
   if(!uuid(id)||!access||access.length!==64)return fail(res,'Enlace inválido.');
-  const q=(await db.query('SELECT id,status,total_cents,created_at FROM store_orders WHERE id=$1 AND access_token_hash=$2',[id,hash(access)])).rows;
+  const q=(await db.query('SELECT id,status,total_cents,created_at,(payment_proof_path IS NOT NULL) AS proof_uploaded FROM store_orders WHERE id=$1 AND access_token_hash=$2',[id,hash(access)])).rows;
   if(!q.length)return fail(res,'Pedido inexistente.',404);
   const items=(await db.query('SELECT p.slug,p.title,p.pages,p.pdf_path IS NOT NULL AS ready FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=$1 ORDER BY p.position',[id])).rows;
   return send(res,{order:q[0],items});
@@ -111,7 +111,7 @@ module.exports=async(req,res)=>{
   if(!admin(req))return fail(res,'Inicia sesión de administrador.',401);
   if(req.method==='GET'&&a==='admin-state'){
    const products=(await db.query('SELECT * FROM store_products ORDER BY position')).rows;
-   const orders=(await db.query("SELECT o.id,o.customer_name,o.customer_email,o.payment_method,o.payment_reference,o.total_cents,o.status,o.created_at,coalesce((SELECT json_agg(json_build_object('slug',i.product_slug,'title',p.title)) FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=o.id),'[]'::json) AS items FROM store_orders o ORDER BY created_at DESC LIMIT 100")).rows;
+   const orders=(await db.query("SELECT o.id,o.customer_name,o.customer_email,o.customer_whatsapp,o.payment_method,o.payment_reference,o.total_cents,o.status,o.created_at,o.proof_required,(o.payment_proof_path IS NOT NULL) AS has_proof,coalesce((SELECT json_agg(json_build_object('slug',i.product_slug,'title',p.title)) FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=o.id),'[]'::json) AS items FROM store_orders o ORDER BY created_at DESC LIMIT 100")).rows;
    return send(res,{products,orders,settings:await settings()});
   }
   if(req.method!=='POST')return fail(res,'Método inválido.',405);
@@ -120,8 +120,10 @@ module.exports=async(req,res)=>{
    if(b.status==='approved'){
     const n=(await db.query('SELECT count(*)::int AS n FROM store_order_items i JOIN store_products p ON p.slug=i.product_slug WHERE i.order_id=$1 AND p.pdf_path IS NULL',[b.id])).rows[0].n;
     if(n)return fail(res,'Primero carga los PDF.',409);
+    const proof=(await db.query('SELECT proof_required,payment_proof_path FROM store_orders WHERE id=$1',[b.id])).rows[0];
+    if(proof?.proof_required&&!proof.payment_proof_path)return fail(res,'Falta adjuntar el comprobante del pago.',409);
    }
-   const r=await db.query("UPDATE store_orders SET status=$2,reviewed_at=now() WHERE id=$1 AND status='pending'",[b.id,b.status]);
+   const r=await db.query("UPDATE store_orders SET status=$2,reviewed_at=now() WHERE id=$1 AND status='pending' AND (proof_required=false OR payment_proof_path IS NOT NULL OR $2='rejected')",[b.id,b.status]);
    return r.rowCount?send(res,{ok:true}):fail(res,'Pedido procesado o inexistente.',409);
   }
   if(a==='payment-settings'){
