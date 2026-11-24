@@ -128,7 +128,7 @@ module.exports=async(req,res)=>{
   const total=isBundle?Math.min(regular,Number(cfg.bundle_price_cents||2400)):regular;
   const perItemPrice=isBundle?Math.floor(total/p.length):0;
   const id=randomUUID(),access=randomBytes(32).toString('hex'),c=await db.connect();
-  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash,customer_whatsapp,proof_required) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)',[id,name,email,method,reference,total,hash(access),whatsapp]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
+  try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash,customer_whatsapp,proof_required,customer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true,$9)',[id,name,email,method,reference,total,hash(access),whatsapp,customerId]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
   catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   return send(res,{id,access,total_cents:total,bundle_applied:isBundle,status:'pending'},201);
  }
