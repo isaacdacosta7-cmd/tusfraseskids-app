@@ -21,6 +21,8 @@
 .included-game{font-size:11px;font-weight:800;color:#4c369a;padding:9px 0 12px}
 @media(max-width:920px){.offer-panel{grid-template-columns:1fr}.game-layout{grid-template-columns:1fr}.game-art{min-height:280px}.hero-book{height:155px}}
 @media(max-width:650px){.offer-section{padding:35px 0 20px}.offer-panel{padding:24px 17px;gap:20px}.offer-covers{grid-template-columns:repeat(3,1fr);gap:9px}.offer-cover{aspect-ratio:3/4}.hero-books{max-width:320px;margin:35px auto 0}.hero-book{height:145px}.game-section{padding:50px 0}.game-art{transform:none;min-height:250px}.game-scenes{font-size:34px;gap:6px}.game-scenes span{padding:8px}.promo-ribbon{font-size:10px}.hero-mini-deal strong{font-size:25px}}
+
+.checkout-steps{display:flex;gap:6px;align-items:center;justify-content:space-between;font-size:11px;color:#8e879e;margin-bottom:22px}.checkout-steps span{padding:9px 8px;background:#f6f3fb;border-radius:10px;font-weight:800;flex:1;text-align:center}.checkout-steps .completed{color:#20743d;background:#e7f8ee}.checkout-steps .selected{background:#eee7ff;color:#5733bc}.checkout-summary{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(110deg,#fff4cd,#f5ecff);border:1px solid #f1e3c9;border-radius:16px;padding:16px;gap:12px;margin:19px 0}.checkout-summary strong{font-size:14px}.checkout-summary small{display:block;font-size:11px;color:#655c7c;margin-top:6px}.checkout-summary del{display:block;color:#92889e;font-size:12px}.checkout-summary .checkout-total{display:block;font-weight:800;color:#5d31c8;font-size:29px;letter-spacing:-1px}.checkout-h3{font-size:16px!important;padding:17px 0 8px!important;margin:12px 0 2px!important;border-bottom:1px solid #eee9f7}.checkout-form .field small{font-size:11px;color:#756d87}.proof-picker{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:165px;padding:20px;border:2px dashed #9f8adf;border-radius:18px;background:#f9f6ff;text-align:center;color:#5940ad;cursor:pointer;margin:16px 0}.proof-picker:hover{background:#f1eaff}.proof-picker strong{font-size:14px}.proof-picker span:not(.proof-pictogram){font-size:12px;color:#706782;word-break:break-word}.proof-picker small{color:#8a8297;font-size:10px}.proof-picker input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.proof-pictogram{font-size:35px}.receipt-preview{width:auto;max-width:100%;max-height:190px;object-fit:contain;border:1px solid #e9e3f2;border-radius:14px;margin:10px auto}.checkout-safety{background:#f0f7fb;padding:13px;border-radius:12px;font-size:11px;line-height:1.5;color:#466074;margin:13px 0 18px}.checkout-note{font-size:11px;color:#807789;text-align:center;margin:13px 0 0}.checkout-success-icon{text-align:center;font-size:55px;margin:4px 0 14px}.proof-retry{border:1px solid #e6ddfc;border-radius:18px;padding:18px;background:#faf8ff;margin:16px 0}
 </style>
 </head>
 <body><div id="app" class="loading">Preparando las historias…</div>
@@ -98,17 +100,82 @@ window.openCart=function(){
 window.removeFromCart=id=>{cart=cart.filter(x=>x!==id);syncCartButtons();openCart();};
 function showModal(body){document.getElementById('modal')?.remove();const m=document.createElement('div');m.className='overlay';m.id='modal';m.innerHTML='<div class="modal"><button class="close" aria-label="Cerrar" onclick="closeModal()">×</button>'+body+'</div>';m.addEventListener('click',e=>{if(e.target===m)closeModal();});document.body.appendChild(m);}
 window.closeModal=function(){document.getElementById('modal')?.remove();};
+
+const proofLimit=8*1024*1024;
+function receiptMime(file){
+ const allowed=['image/jpeg','image/png','image/webp'];
+ const raw=String(file?.type||'').toLowerCase();
+ if(allowed.includes(raw))return raw;
+ const name=String(file?.name||'').toLowerCase();
+ return /\.png$/.test(name)?'image/png':/\.webp$/.test(name)?'image/webp':/\.(jpg|jpeg)$/.test(name)?'image/jpeg':'';
+}
+async function uploadCustomerProof(file,id,access,onStage){
+ const mime=receiptMime(file);
+ if(!mime||file.size<100||file.size>proofLimit)throw Error('Adjunta una captura JPG, PNG o WebP de hasta 8 MB.');
+ onStage?.('Preparando comprobante…');
+ const ticket=await post({action:'proof-ticket',id,access,size:file.size,mime});
+ onStage?.('Subiendo tu captura de pago…');
+ const result=await fetch(ticket.url,{method:'PUT',headers:{'Content-Type':mime},body:file});
+ if(!result.ok)throw Error('Hubo un problema subiendo la captura. Inténtalo nuevamente desde tu pedido.');
+ onStage?.('Verificando archivo…');
+ await post({action:'proof-save',id,access,path:ticket.path,mime});
+ return true;
+}
+window.previewReceiptFile=function(input){
+ const file=input.files?.[0],label=document.getElementById('proofFileName'),image=document.getElementById('proofPreview');
+ if(!label||!image)return;
+ if(!file){label.textContent='Selecciona una captura o foto del comprobante';image.style.display='none';return;}
+ label.textContent='📎 '+file.name+' · '+(file.size/1024/1024).toFixed(2)+' MB';
+ image.style.display='block';
+ image.src=URL.createObjectURL(file);
+};
 window.checkout=function(){
  const choices=['pago_movil','transferencia','internacional'].filter(k=>String(config[k]||'').trim());
- if(!config.store_open||!choices.length){showModal('<h2>⏳ Próximamente</h2><p class="muted">Estamos terminando de preparar los métodos de pago y las descargas. Regresa pronto.</p>');return;}
+ if(!config.store_open||!choices.length){showModal('<h2>⏳ Próximamente</h2><p class="muted">Estamos preparando los métodos de pago.</p>');return;}
  if(cart.some(x=>!products.find(p=>p.slug===x)?.ready)){showModal('<h2>⏳ En preparación</h2><p class="muted">Uno de los cuentos elegidos todavía está siendo preparado.</p>');return;}
- showModal('<h2>Finalizar compra</h2><p class="muted">Completa tus datos y realiza el pago siguiendo las instrucciones.</p><div class="notice success" style="margin:14px 0">🎁 <strong>'+money(cartQuote().total)+' USD</strong> por '+cart.length+' '+(cart.length===1?'cuento':'cuentos')+' · Juegos bíblicos exclusivos incluidos '+(cartQuote().collection?'· ¡Ahorras '+money(cartQuote().saved)+'!':'')+'</div><form id="buyForm"><div class="field"><label>Nombre del comprador</label><input name="name" maxlength="100" required minlength="3"></div><div class="field"><label>Correo electrónico</label><input name="email" type="email" maxlength="160" required></div><div class="field"><label>Método de pago</label><select name="method" id="payMethod" onchange="payDetails()">'+choices.map(k=>'<option value="'+k+'">'+({pago_movil:'Pago Móvil',transferencia:'Transferencia',internacional:'Pago internacional'}[k])+'</option>').join('')+'</select></div><div class="pay-note" id="payDetails"></div><div class="field"><label>Referencia o comprobante de pago (número)</label><input name="reference" minlength="3" maxlength="100" placeholder="Ej. 00458923" required></div><p class="muted" style="font-size:12px">Cada pago será revisado antes de habilitar las descargas. Conserva la información de tu pedido.</p><button class="btn primary wide" id="submitBuy">Registrar pago y solicitar verificación</button></form>');
+ const quote=cartQuote(),methodLabels={pago_movil:'📲 Pago Móvil',transferencia:'🏦 Transferencia',internacional:'🌍 Pago internacional'};
+ showModal('<div class="checkout-steps"><span class="completed">✓ Carrito</span><span class="selected">2. Datos y pago</span><span>3. Verificación</span></div>'+
+ '<h2>🛍️ Finaliza tu compra</h2><p class="muted">¡Tus historias y aventuras digitales están a un paso!</p>'+
+ '<div class="checkout-summary"><div><strong>'+cart.length+' '+(cart.length===1?'cuento bíblico':'cuentos bíblicos')+'</strong><small>📚 PDF ilustrados + 🎮 juegos privados</small></div><div style="text-align:right">'+(quote.collection?'<del>'+money(quote.regular)+'</del>':'')+'<strong class="checkout-total">'+money(quote.total)+'</strong></div></div>'+
+ '<form id="buyForm" class="checkout-form">'+
+ '<h3 class="checkout-h3">1. Tus datos de contacto</h3>'+
+ '<div class="field"><label for="buyerName">Nombre y apellido *</label><input id="buyerName" name="name" autocomplete="name" maxlength="100" required minlength="3" placeholder="Nombre del comprador"></div>'+
+ '<div class="field"><label for="buyerEmail">Correo electrónico *</label><input id="buyerEmail" name="email" autocomplete="email" type="email" maxlength="160" required placeholder="ejemplo@correo.com"></div>'+
+ '<div class="field"><label for="buyerPhone">Número de WhatsApp *</label><input id="buyerPhone" name="whatsapp" type="tel" autocomplete="tel" required minlength="10" maxlength="30" placeholder="+58 412 1234567" inputmode="tel"><small>Para poder contactar contigo si necesitamos verificar algún dato.</small></div>'+
+ '<h3 class="checkout-h3">2. Realiza el pago</h3>'+
+ '<div class="field"><label for="payMethod">Selecciona tu método de pago *</label><select name="method" id="payMethod" onchange="payDetails()">'+choices.map(k=>'<option value="'+k+'">'+methodLabels[k]+'</option>').join('')+'</select></div>'+
+ '<div class="pay-note" id="payDetails"></div>'+
+ '<div class="field"><label for="buyerReference">Número de referencia del pago *</label><input id="buyerReference" name="reference" minlength="3" maxlength="100" placeholder="Número de operación o referencia" required></div>'+
+ '<h3 class="checkout-h3">3. Adjunta la captura de tu pago</h3>'+
+ '<label class="proof-picker" for="buyerProof"><span class="proof-pictogram">📸</span><strong>Adjuntar captura o comprobante</strong><span id="proofFileName">Selecciona una captura o foto del comprobante</span><small>JPG, PNG o WebP · Máximo 8 MB</small><input id="buyerProof" name="proof" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" required onchange="previewReceiptFile(this)"></label>'+
+ '<img id="proofPreview" class="receipt-preview" alt="Vista previa del comprobante" style="display:none">'+
+ '<div class="checkout-safety">🔒 Tu captura se almacena de forma privada. Revisaremos el ingreso del pago y habilitaremos tus descargas y juegos.</div>'+
+ '<button class="btn primary wide checkout-submit" id="submitBuy" type="submit">📦 Enviar compra para verificación · '+money(quote.total)+'</button>'+
+ '<p class="checkout-note">Después de validar el pago podrás descargar tus cuentos y abrir tus juegos bíblicos exclusivos.</p></form>');
  payDetails();
- document.getElementById('buyForm').addEventListener('submit',async e=>{e.preventDefault();const btn=document.getElementById('submitBuy'),fd=new FormData(e.target);btn.disabled=true;btn.textContent='Registrando…';try{
- const d=await post({action:'checkout',name:fd.get('name'),email:fd.get('email'),method:fd.get('method'),reference:fd.get('reference'),slugs:cart});
- const url=location.origin+'/pedido?id='+encodeURIComponent(d.id)+'&access='+encodeURIComponent(d.access);
- cart=[];showModal('<h2>✅ Pedido registrado</h2><p class="muted">Tu pago quedó pendiente de verificación. Guarda tu enlace privado: después de aprobar tu pago podrás <strong>descargar los cuentos y entrar a tu página privada de juegos bíblicos</strong>.</p><div class="linkbox" id="orderLink">'+esc(url)+'</div><div style="height:18px"></div><button class="btn primary wide" onclick="copyOrderLink()">Copiar enlace de mi pedido</button><a class="btn outline wide" style="margin-top:9px" href="'+url+'">Consultar mi pedido</a>');
- }catch(err){alert(err.message);btn.disabled=false;btn.textContent='Registrar pago y solicitar verificación';}});
+ document.getElementById('buyForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const btn=document.getElementById('submitBuy'),fd=new FormData(e.target),file=fd.get('proof');
+  if(!(file instanceof File)||!receiptMime(file)||file.size<100||file.size>proofLimit){alert('Adjunta una captura JPG, PNG o WebP de hasta 8 MB.');return;}
+  btn.disabled=true;btn.textContent='Registrando tu compra…';
+  let order=null;
+  try{
+   order=await post({action:'checkout',name:fd.get('name'),email:fd.get('email'),whatsapp:fd.get('whatsapp'),method:fd.get('method'),reference:fd.get('reference'),slugs:cart});
+   await uploadCustomerProof(file,order.id,order.access,stage=>{btn.textContent=stage;});
+   const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
+   cart=[];syncCartButtons();
+   showModal('<div class="checkout-success-icon">✅</div><h2>¡Compra registrada!</h2><div class="notice success"><strong>📸 Comprobante recibido correctamente.</strong> Tu pago está pendiente de revisión.</div><p class="muted">Una vez aprobado podrás descargar los cuentos y entrar a tus juegos exclusivos.</p><a class="btn primary wide" href="'+url+'">📦 Ver estado de mi pedido</a>');
+  }catch(err){
+   if(order){
+    const url=location.origin+'/pedido?id='+encodeURIComponent(order.id)+'&access='+encodeURIComponent(order.access);
+    cart=[];syncCartButtons();
+    showModal('<h2>📦 Tu pedido está registrado</h2><div class="notice">La captura todavía necesita cargarse: '+esc(err.message)+'</div><p class="muted">Ingresa a tu pedido y adjunta nuevamente el comprobante. Allí podrás consultar el estado de tu pago.</p><a class="btn primary wide" href="'+url+'">📸 Adjuntar mi captura de pago</a>');
+   }else{
+    alert(err.message);
+    btn.disabled=false;btn.textContent='📦 Enviar compra para verificación · '+money(quote.total);
+   }
+  }
+ });
 };
 window.payDetails=function(){const k=document.getElementById('payMethod')?.value;const el=document.getElementById('payDetails');if(el)el.textContent=String(config[k]||'');};
 window.copyOrderLink=function(){const s=document.getElementById('orderLink')?.textContent||'';navigator.clipboard.writeText(s).then(()=>alert('Enlace copiado.'));};
