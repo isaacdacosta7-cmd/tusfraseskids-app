@@ -3,6 +3,8 @@
 const {Pool}=require('pg');
 const {randomBytes,randomUUID,createHash,createHmac,timingSafeEqual}=require('crypto');
 const {issueSignedToken,presignUrl,head,get}=require('@vercel/blob');
+const proofTypes=Object.freeze({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'});
+const proofSizeLimit=8*1024*1024;
 const {Readable}=require('node:stream');
 const db=new Pool({connectionString:process.env.DATABASE_URL,max:4,idleTimeoutMillis:10000});
 const hash=x=>createHash('sha256').update(String(x)).digest('hex');
@@ -53,6 +55,38 @@ module.exports=async(req,res)=>{
   try{await c.query('BEGIN');await c.query('INSERT INTO store_orders(id,customer_name,customer_email,payment_method,payment_reference,total_cents,access_token_hash,customer_whatsapp,proof_required) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)',[id,name,email,method,reference,total,hash(access),whatsapp]);for(let i=0;i<p.length;i++){const x=p[i],itemPrice=isBundle?perItemPrice+(i===0?total-perItemPrice*p.length:0):x.price_cents;await c.query('INSERT INTO store_order_items(order_id,product_slug,price_cents) VALUES($1,$2,$3)',[id,x.slug,itemPrice]);}await c.query('COMMIT');}
   catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   return send(res,{id,access,total_cents:total,bundle_applied:isBundle,status:'pending'},201);
+ }
+ if(req.method==='POST'&&a==='proof-ticket'){
+  const id=String(b.id||''),access=String(b.access||''),size=Number(b.size),mime=String(b.mime||'');
+  if(!uuid(id)||access.length!==64||!proofTypes[mime]||!Number.isInteger(size)||size<100||size>proofSizeLimit)return fail(res,'Comprobante inválido. Adjunta JPG, PNG o WebP de hasta 8 MB.');
+  const q=await db.query("UPDATE store_orders SET proof_upload_attempts=proof_upload_attempts+1 WHERE id=$1 AND access_token_hash=$2 AND status='pending' AND proof_upload_attempts<12 RETURNING id",[id,hash(access)]);
+  if(!q.rowCount)return fail(res,'Pedido inexistente, procesado o con demasiados intentos.',409);
+  const path='proofs/'+id+'/'+Date.now()+'-'+randomBytes(8).toString('hex')+proofTypes[mime];
+  return send(res,{path,url:await presign(path,'put',10)});
+ }
+ if(req.method==='POST'&&a==='proof-save'){
+  const id=String(b.id||''),access=String(b.access||''),path=String(b.path||''),mime=String(b.mime||'');
+  const root='proofs/'+id+'/',name=path.slice(root.length);
+  if(!uuid(id)||access.length!==64||!proofTypes[mime]||!path.startsWith(root)||!/^\d{13}-[a-f0-9]{16}\.(jpg|png|webp)$/.test(name)||!path.endsWith(proofTypes[mime]))return fail(res,'Comprobante inválido.');
+  const order=(await db.query("SELECT id FROM store_orders WHERE id=$1 AND access_token_hash=$2 AND status='pending'",[id,hash(access)])).rows[0];
+  if(!order)return fail(res,'Pedido inexistente o procesado.',409);
+  const meta=await head(path,{access:'private'});
+  if(!meta||meta.size<100||meta.size>proofSizeLimit||String(meta.contentType||'').split(';')[0]!==mime)return fail(res,'Formato o tamaño incorrecto del comprobante.',400);
+  const blob=await get(path,{access:'private'});
+  if(!blob||blob.statusCode!==200||!blob.stream)return fail(res,'No se pudo validar el archivo.',502);
+  const reader=blob.stream.getReader(),bytes=[];
+  try{
+   while(bytes.length<12){
+    const part=await reader.read();if(part.done)break;
+    for(const value of part.value){bytes.push(value);if(bytes.length===12)break;}
+   }
+  }finally{await reader.cancel().catch(()=>{});}
+  const jpeg=mime==='image/jpeg'&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255;
+  const png=mime==='image/png'&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v);
+  const webp=mime==='image/webp'&&[82,73,70,70].every((v,i)=>bytes[i]===v)&&[87,69,66,80].every((v,i)=>bytes[i+8]===v);
+  if(!(jpeg||png||webp))return fail(res,'Adjunta una captura de imagen válida en JPG, PNG o WebP.');
+  const saved=await db.query("UPDATE store_orders SET payment_proof_path=$3,payment_proof_mime=$4 WHERE id=$1 AND access_token_hash=$2 AND status='pending'",[id,hash(access),path,mime]);
+  return saved.rowCount?send(res,{ok:true,proof_uploaded:true}):fail(res,'El pedido ya está procesado.',409);
  }
  if(req.method==='GET'&&a==='order'){
   const id=u.searchParams.get('id'),access=u.searchParams.get('access');
