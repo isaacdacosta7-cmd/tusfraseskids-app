@@ -31,7 +31,8 @@ module.exports=async(req,res)=>{
  if(req.method==='POST'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)return fail(res,'Origen inválido.',403);
  if(req.method==='GET'&&a==='catalog'){
   const p=(await db.query('SELECT slug,title,subtitle,description,pages,price_cents,position,cover_path IS NOT NULL AS has_cover,pdf_path IS NOT NULL AS ready FROM store_products WHERE is_active=true ORDER BY position')).rows;
-  return send(res,{products:p,settings:await settings()});
+  const cfg=await settings();const regular=p.reduce((n,x)=>n+x.price_cents,0),bundlePrice=Math.min(regular,Number(cfg.bundle_price_cents||2400));
+  return send(res,{products:p,settings:cfg,bundle:{price_cents:bundlePrice,regular_price_cents:regular,savings_cents:regular-bundlePrice,discount_percent:regular?Math.round(100*(regular-bundlePrice)/regular):0,product_count:p.length}});
  }
  if(req.method==='POST'&&a==='checkout'){
   const name=String(b.name||'').trim().slice(0,100),email=String(b.email||'').trim().toLowerCase().slice(0,160),reference=String(b.reference||'').trim().slice(0,100);
