@@ -8,6 +8,10 @@
     {
       "source": "/pedido",
       "destination": "/index.html"
+    },
+    {
+      "source": "/mis-compras",
+      "destination": "/index.html"
     }
   ],
   "headers": [
