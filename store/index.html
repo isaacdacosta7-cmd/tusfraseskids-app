@@ -223,7 +223,7 @@ async function statusPage(){
    }catch(e){notice.textContent=e.message;button.disabled=false;button.textContent='📤 Reintentar envío de comprobante';}
   });
  }catch(e){
-  app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><h2>Enlace inválido</h2><p class="muted">'+esc(e.message)+'</p><a href="/" class="btn primary">Ver cuentos</a></div></main>');
+  app.innerHTML=shell('<main class="wrap status-page"><div class="panel"><h2>Acceso al pedido</h2><p class="muted">'+esc(e.message)+'</p><a href="/mis-compras" class="btn primary">👤 Entrar a Mis compras</a> <a href="/" class="btn outline">Ver cuentos</a></div></main>');
  }
 }
 
@@ -291,8 +291,8 @@ function renderAdmin(){
 window.savePrice=async id=>{const price=Number(document.getElementById('price-'+id).value);try{await post({action:'price',slug:id,price_cents:Math.round(price*100)});alert('Precio actualizado');refreshAdmin();}catch(e){alert(e.message);}};
 window.reviewOrder=async(id,status)=>{if(!confirm(status==='approved'?'¿Confirmaste que el dinero ingresó realmente?':'¿Rechazar este comprobante?'))return;try{await post({action:'review',id,status});refreshAdmin();}catch(e){alert(e.message);}};
 window.revokeOrder=async id=>{
- if(!confirm('¿Revocar este pago aprobado? Se bloquearán las siguientes descargas y los nuevos accesos a juegos. Los archivos ya descargados permanecen en manos del comprador.'))return;
- try{await post({action:'revoke',id,confirm:true});await refreshAdmin();alert('Aprobación revocada. Las nuevas descargas están bloqueadas.');}
+ if(!confirm('¿Revocar la aprobación? El pedido volverá a pendiente y se bloquearán las nuevas descargas. Los archivos ya descargados permanecen con el comprador.'))return;
+ try{await post({action:'revoke',id,confirm:true});await refreshAdmin();alert('Aprobación revocada. El pedido volvió a pendiente para revisión.');}
  catch(e){alert(e.message);}
 };
 window.logout=async()=>{await post({action:'logout'});refreshAdmin();};
